@@ -132,7 +132,7 @@ func (element *XMLElement) GetValue(xpath string) string {
 	if xpath == "." {
 		return element.InnerText
 	} else if xpath == "" {
-		panic("Empty string is not valid")
+		return ""
 	}
 	var attr string
 	var node XMLElement
