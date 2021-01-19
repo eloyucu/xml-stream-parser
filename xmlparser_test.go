@@ -370,6 +370,10 @@ func TestGetValueDeep(t *testing.T) {
 		if v != "grandson111" {
 			t.Errorf("father.son.grandson Deep search doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "grandson111", v)
 		}
+		v = xml.GetValueDeep("numericDeep.deep.float")
+		if v != "1.2" {
+			t.Errorf("numericDeep.deep.float Deep search doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "1.2", v)
+		}
 	}
 }
 
