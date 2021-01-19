@@ -247,55 +247,72 @@ func TestGetAllNodes(t *testing.T) {
 		}
 	}
 }
+
+type testStringHelper struct {
+	path     string
+	expected string
+}
+type testIntHelper struct {
+	path     string
+	expected int
+}
+
 func TestGetValue(t *testing.T) {
 	var found string
 	p := getparser("examples")
+	testHelper := []testStringHelper{
+		{
+			path:     "@inittag",
+			expected: "initial_attr",
+		},
+		{
+			path:     "tag1.tag11",
+			expected: "InnerText110",
+		},
+		{
+			path:     "tag1.tag11[1]",
+			expected: "InnerText111",
+		},
+		{
+			path:     "tag1[1].tag11",
+			expected: "InnerText2",
+		},
+		{
+			path:     "tag1[10].tag11",
+			expected: "",
+		},
+		{
+			path:     "tag1.tag11[10]",
+			expected: "",
+		},
+		{
+			path:     "tag1.tag12@att1",
+			expected: "att0",
+		},
+		{
+			path:     "tag1[1].tag12@att1",
+			expected: "att1",
+		},
+		{
+			path:     "tag1[1].tag12@missingatt",
+			expected: "",
+		},
+		{
+			path:     "missingtag.tag12.tag13",
+			expected: "",
+		},
+		{
+			path:     "tag1[1].tag12.missingtag@att1",
+			expected: "",
+		},
+	}
 	for xml := range p.Stream() {
-		found = xml.GetValue("@inittag")
-		if found != "initial_attr" {
-			t.Errorf("@inittag doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "initial_attr", found)
+		for _, testH := range testHelper {
+			found = xml.GetValue(testH.path)
+			if found != testH.expected {
+				t.Errorf("%s doesn´t match with expected \n\t Expected: %s \n\t Found: %s", testH.path, testH.expected, found)
+			}
 		}
-		found = xml.GetValue("tag1.tag11")
-		if found != "InnerText110" {
-			t.Errorf("tag1>tag11 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "InnerText110", found)
-		}
-		found = xml.GetValue("tag1.tag11[1]")
-		if found != "InnerText111" {
-			t.Errorf("tag1>tag11[1] doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "InnerText111", found)
-		}
-		found = xml.GetValue("tag1[1].tag11")
-		if found != "InnerText2" {
-			t.Errorf("tag1[1]>tag11 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "InnerText2", found)
-		}
-		found = xml.GetValue("tag1[10].tag11")
-		if found != "" {
-			t.Errorf("tag1[10]>tag11 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "InnerText2", found)
-		}
-		found = xml.GetValue("tag1.tag11[10]")
-		if found != "" {
-			t.Errorf("tag1>tag11[10] doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "InnerText2", found)
-		}
-		found = xml.GetValue("tag1.tag12@att1")
-		if found != "att0" {
-			t.Errorf("tag1>tag12>@att1 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "att1", found)
-		}
-		found = xml.GetValue("tag1[1].tag12@att1")
-		if found != "att1" {
-			t.Errorf("tag1[1]>tag12>@att1 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "att1", found)
-		}
-		found = xml.GetValue("tag1[1].tag12@missingatt")
-		if found != "" {
-			t.Errorf("tag1[1]>tag12>@missingatt doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "att1", found)
-		}
-		found = xml.GetValue("missingtag.tag12.tag13")
-		if found != "" {
-			t.Errorf("missingtag>tag12>tag13 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "att1", found)
-		}
-		found = xml.GetValue("tag1[1].tag12.missingtag@att1")
-		if found != "" {
-			t.Errorf("tag1[1]>tag12>missingtag>@att1 doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "att1", found)
-		}
-
 		node := xml.GetNode("tag1[1].tag13")
 		found = node.GetValue(".")
 		if found != "InnerText213" {
@@ -305,25 +322,32 @@ func TestGetValue(t *testing.T) {
 
 }
 func TestGetValueNumeric(t *testing.T) {
-	var i int
 	var f float64
+	testHelper := []testIntHelper{
+		{
+			path:     "numeric.int",
+			expected: 8,
+		},
+		{
+			path:     "numeric.int[1]",
+			expected: 18,
+		},
+		{
+			path:     "numeric.int[2]",
+			expected: 0,
+		},
+		{
+			path:     "numeric.int[2]@realInt",
+			expected: 9,
+		},
+	}
 	p := getparser("examples")
 	for xml := range p.Stream() {
-		i = xml.GetValueInt("numeric.int")
-		if i != 8 {
-			t.Errorf("numeric.int doesn´t match with expected \n\t Expected: %d \n\t Found: %d", 8, i)
-		}
-		i = xml.GetValueInt("numeric.int[1]")
-		if i != 18 {
-			t.Errorf("numeric.int[1] doesn´t match with expected \n\t Expected: %d \n\t Found: %d", 18, i)
-		}
-		i = xml.GetValueInt("numeric.int[2]")
-		if i != 0 {
-			t.Errorf("numeric.int[2] doesn´t match with expected \n\t Expected: %d \n\t Found: %d", 0, i)
-		}
-		i = xml.GetValueInt("numeric.int[2]@realInt")
-		if i != 9 {
-			t.Errorf("numeric.int[2]@realInt doesn´t match with expected \n\t Expected: %d \n\t Found: %d", 9, i)
+		for _, testH := range testHelper {
+			found := xml.GetValueInt(testH.path)
+			if found != testH.expected {
+				t.Errorf("%s doesn´t match with expected \n\t Expected: %d \n\t Found: %d", testH.path, testH.expected, found)
+			}
 		}
 		f = xml.GetValueF64("numeric.float")
 		if f != 39.9 {
@@ -348,6 +372,30 @@ func TestGetValueDeep(t *testing.T) {
 		}
 	}
 }
+
+func TestCData(t *testing.T) {
+	testHelper := []string{
+		"OB Fees of incl for CARD FEE FDA may be applied for traveler 1.",
+		"OB Fees of incl for CARD FEE FCA may be applied for traveler 1.",
+		"Qantas Frequent Flyer 1 could earn 1200 Qantas Points and 20 Status Credit for this booking. <a href=\"https://www.qantas.com/fflyer/dyn/program/terms\" target=\"_blank\">Terms and conditions apply.</a>",
+	}
+	p := getparserFile("cdata_test.xml", "Root")
+	for xml := range p.Stream() {
+		warnings := xml.GetNodes("Warnings.Warning")
+		for i, w := range warnings {
+			expected := testHelper[i]
+			found := w.GetValue(".")
+			if expected != found {
+				t.Errorf("Warning[%d] Search doesn´t match with expected \n\t Expected: %s \n\t Found: %s", i, expected, found)
+			}
+		}
+		v := xml.GetValue("Response.ReShoppingResponseID.ResponseID")
+		if v != "XXXXXXXX" {
+			t.Errorf("Response.ReShoppingResponseID.ResponseID Search doesn´t match with expected \n\t Expected: %s \n\t Found: %s", "XXXXXXXX", v)
+		}
+	}
+}
+
 func Benchmark1(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {

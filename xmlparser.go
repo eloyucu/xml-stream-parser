@@ -3,39 +3,40 @@ package xmlparser
 import (
 	"bufio"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 )
 
 type XMLParser struct {
 	reader            *bufio.Reader
-	loopElement       string
+	loopElements      map[string]bool
 	resultChannel     chan *XMLElement
 	skipElements      map[string]bool
+	attrOnlyElements  map[string]bool
 	skipOuterElements bool
+	xpathEnabled      bool
 	scratch           *scratch
 	scratch2          *scratch
 	TotalReadSize     uint64
 }
 
-type XMLElement struct {
-	Attrs     map[string]string
-	InnerText string
-	Childs    map[string][]XMLElement
-	Err       error
-}
-
-func NewXMLParser(reader *bufio.Reader, loopElement string) *XMLParser {
+func NewXMLParser(reader *bufio.Reader, loopElements ...string) *XMLParser {
 
 	x := &XMLParser{
-		reader:        reader,
-		loopElement:   loopElement,
-		resultChannel: make(chan *XMLElement, 256),
-		skipElements:  map[string]bool{},
-		scratch:       &scratch{data: make([]byte, 1024)},
-		scratch2:      &scratch{data: make([]byte, 1024)},
+		reader:           reader,
+		loopElements:     map[string]bool{},
+		attrOnlyElements: map[string]bool{},
+		resultChannel:    make(chan *XMLElement, 256),
+		skipElements:     map[string]bool{},
+		scratch:          &scratch{data: make([]byte, 1024)},
+		scratch2:         &scratch{data: make([]byte, 1024)},
 	}
+
+	// Register loop elements
+	for _, e := range loopElements {
+		x.loopElements[e] = true
+	}
+
 	return x
 }
 
@@ -50,11 +51,25 @@ func (x *XMLParser) SkipElements(skipElements []string) *XMLParser {
 
 }
 
+func (x *XMLParser) ParseAttributesOnly(loopElements ...string) *XMLParser {
+	for _, e := range loopElements {
+		x.attrOnlyElements[e] = true
+	}
+	return x
+}
+
 // by default skip elements works for stream elements childs
 // if this method called parser skip also outer elements
 func (x *XMLParser) SkipOuterElements() *XMLParser {
 
 	x.skipOuterElements = true
+	return x
+
+}
+
+func (x *XMLParser) EnableXpath() *XMLParser {
+
+	x.xpathEnabled = true
 	return x
 
 }
@@ -67,133 +82,10 @@ func (x *XMLParser) Stream() chan *XMLElement {
 
 }
 
-func (element *XMLElement) GetAllNodes(xpath string) []XMLElement {
-	xpaths := strings.SplitN(xpath, ".", 2)
-	if len(xpaths) > 1 {
-		paths := xpaths[1]
-		elements := []XMLElement{}
-		nodes := element.GetNodes(xpaths[0])
-		for _, node := range nodes {
-			elements = append(elements, node.GetAllNodes(paths)...)
-		}
-		return elements
-	}
-	return element.GetNodes(xpaths[0])
-}
-func (element *XMLElement) GetNodes(xpath string) []XMLElement {
-	var path, paths string
-	xpaths := strings.SplitN(xpath, ".", 2)
-	if len(xpaths) > 1 {
-		paths = xpaths[1]
-	}
-	path = xpaths[0]
-	path, index := element.pathIndex(path)
-	if len(element.Childs[path]) > index {
-		if paths == "" {
-			return element.Childs[path]
-		}
-		return element.Childs[path][index].GetNodes(paths)
-	}
-	return []XMLElement{}
-}
-func (element *XMLElement) GetNode(xpath string) XMLElement {
-	var index int
-	nodes := element.GetNodes(xpath)
-	indexes := strings.Split(xpath, ".")
-	indexes = strings.Split(indexes[len(indexes)-1], "[")
-	indexes = strings.Split(indexes[len(indexes)-1], "[")
-	if len(indexes) == 1 {
-		var err error
-		index, err = strconv.Atoi(strings.Split(indexes[0], "]")[0])
-		if err != nil {
-			index = 0
-		}
-	} else {
-		index = 0
-	}
-	if len(nodes) > index {
-		return nodes[index]
-	}
-	return XMLElement{}
-}
-func (element *XMLElement) GetValueF64(xpath string) float64 {
-	v := element.GetValue(xpath)
-	f := 0.00
-	if t, err := strconv.ParseFloat(v, 64); err == nil {
-		f = t
-	}
-	return f
-}
-func (element *XMLElement) GetValueInt(xpath string) int {
-	i := element.GetValueF64(xpath)
-	return int(i)
-}
-func (element *XMLElement) GetValue(xpath string) string {
-	if xpath == "." {
-		return element.InnerText
-	} else if xpath == "" {
-		return ""
-	}
-	var attr string
-	var node XMLElement
-	xpaths := strings.SplitN(xpath, "@", 2)
-	if len(xpaths) > 1 {
-		attr = xpaths[1]
-	}
-	if xpaths[0] == "" {
-		node = *element
-	} else {
-		node = element.GetNode(xpaths[0])
-	}
-	if attr == "" {
-		return node.InnerText
-	}
-	return node.Attrs[attr]
-}
-func (element *XMLElement) GetValueF64Deep(xpath string) float64 {
-	v := element.GetValueDeep(xpath)
-	f := 0.00
-	if t, err := strconv.ParseFloat(v, 64); err == nil {
-		f = t
-	}
-	return f
-}
-func (element *XMLElement) GetValueIntDeep(xpath string) int {
-	i := element.GetValueF64Deep(xpath)
-	return int(i)
-}
-func (element *XMLElement) GetValueDeep(xpath string) string {
-	xpaths := strings.SplitN(xpath, ".", 2)
-	if len(xpaths) > 1 {
-		paths := xpaths[1]
-		nodes := element.GetNodes(xpaths[0])
-		for _, node := range nodes {
-			v := node.GetValueDeep(paths)
-			if v != "" {
-				return v
-			}
-		}
-	}
-	return element.GetValue(xpaths[0])
-}
-func (element *XMLElement) pathIndex(path string) (string, int) {
-	indexes := strings.Split(path, "[")
-	path = indexes[0]
-	if len(indexes) > 1 {
-		indexes := strings.Split(indexes[1], "]")
-		index, err := strconv.Atoi(indexes[0])
-		if err != nil {
-			return path, 0
-		}
-		return path, index
-	}
-	return path, 0
-}
 func (x *XMLParser) parse() {
 
 	defer close(x.resultChannel)
 	var element *XMLElement
-	var tagName string
 	var tagClosed bool
 	var err error
 	var b byte
@@ -219,6 +111,16 @@ func (x *XMLParser) parse() {
 
 		if b == '<' {
 
+			iscdata, _, err := x.isCDATA()
+
+			if err != nil {
+				x.sendError()
+				return
+			}
+			if iscdata {
+				continue
+			}
+
 			iscomment, err = x.isComment()
 
 			if err != nil {
@@ -230,29 +132,31 @@ func (x *XMLParser) parse() {
 				continue
 			}
 
-			tagName, element, tagClosed, err = x.startElement()
+			element, tagClosed, err = x.startElement()
 
 			if err != nil {
 				x.sendError()
 				return
 			}
 
-			if tagName == x.loopElement {
+			if _, found := x.loopElements[element.Name]; found {
 				if tagClosed {
 					x.resultChannel <- element
 					continue
 				}
 
-				element = x.getElementTree(tagName, element)
+				if _, ok := x.attrOnlyElements[element.Name]; !ok {
+					element = x.getElementTree(element)
+				}
 				x.resultChannel <- element
 				if element.Err != nil {
 					return
 				}
 			} else if x.skipOuterElements {
 
-				if _, ok := x.skipElements[tagName]; ok && !tagClosed {
+				if _, ok := x.skipElements[element.Name]; ok && !tagClosed {
 
-					err = x.skipElement(tagName)
+					err = x.skipElement(element.Name)
 					if err != nil {
 						x.sendError()
 						return
@@ -268,7 +172,7 @@ func (x *XMLParser) parse() {
 
 }
 
-func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLElement {
+func (x *XMLParser) getElementTree(result *XMLElement) *XMLElement {
 
 	if result.Err != nil {
 		return result
@@ -280,7 +184,6 @@ func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLEleme
 	var element *XMLElement
 	var tagClosed bool
 	x.scratch2.reset() // this hold the inner text
-	var tagName2 string
 	var iscomment bool
 
 	for {
@@ -293,6 +196,19 @@ func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLEleme
 		}
 
 		if cur == '<' {
+
+			iscdata, cddata, err := x.isCDATA()
+
+			if err != nil {
+				result.Err = err
+				return result
+			}
+			if iscdata {
+				for _, cd := range cddata {
+					x.scratch2.add(cd)
+				}
+				continue
+			}
 
 			iscomment, err = x.isComment()
 
@@ -320,8 +236,8 @@ func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLEleme
 					return result
 				}
 
-				if tag == tagName {
-					if len(result.Childs) == 0 { // check special tag???
+				if tag == result.Name {
+					if len(result.Childs) == 0 {
 						result.InnerText = string(x.scratch2.bytes())
 					}
 					return result
@@ -330,15 +246,15 @@ func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLEleme
 				x.unreadByte()
 			}
 
-			tagName2, element, tagClosed, err = x.startElement()
+			element, tagClosed, err = x.startElement()
 
 			if err != nil {
 				result.Err = err
 				return result
 			}
 
-			if _, ok := x.skipElements[tagName2]; ok && !tagClosed {
-				err = x.skipElement(tagName2)
+			if _, ok := x.skipElements[element.Name]; ok && !tagClosed {
+				err = x.skipElement(element.Name)
 				if err != nil {
 					result.Err = err
 					return result
@@ -346,18 +262,30 @@ func (x *XMLParser) getElementTree(tagName string, result *XMLElement) *XMLEleme
 				continue
 			}
 			if !tagClosed {
-				element = x.getElementTree(tagName2, element)
+				element = x.getElementTree(element)
 			}
 
-			if _, ok := result.Childs[tagName2]; ok {
-				result.Childs[tagName2] = append(result.Childs[tagName2], *element)
+			if x.xpathEnabled {
+				element.parent = result
+			}
+
+			if _, ok := result.Childs[element.Name]; ok {
+				result.Childs[element.Name] = append(result.Childs[element.Name], *element)
+				if x.xpathEnabled {
+					result.childs = append(result.childs, element)
+				}
 			} else {
 				var childs []XMLElement
 				childs = append(childs, *element)
 				if result.Childs == nil {
 					result.Childs = map[string][]XMLElement{}
 				}
-				result.Childs[tagName2] = childs
+				result.Childs[element.Name] = childs
+
+				if x.xpathEnabled {
+					result.childs = append(result.childs, element)
+				}
+
 			}
 
 		} else {
@@ -403,7 +331,7 @@ func (x *XMLParser) skipElement(elname string) error {
 	}
 }
 
-func (x *XMLParser) startElement() (string, *XMLElement, bool, error) {
+func (x *XMLParser) startElement() (*XMLElement, bool, error) {
 
 	x.scratch.reset()
 
@@ -414,26 +342,60 @@ func (x *XMLParser) startElement() (string, *XMLElement, bool, error) {
 	// a tag have 3 forms * <abc > ** <abc type="foo" val="bar"/> *** <abc />
 	var attr string
 	var attrVal string
-	var tagName string
 	for {
 
 		cur, err = x.readByte()
 
 		if err != nil {
-			return "", nil, false, x.defaultError()
+			return nil, false, x.defaultError()
 		}
 
 		if x.isWS(cur) {
-			tagName = string(x.scratch.bytes())
+			result.Name = string(x.scratch.bytes())
+
+			if x.xpathEnabled {
+				names := strings.Split(result.Name, ":")
+				if len(names) > 1 {
+					result.prefix = names[0]
+					result.localName = names[1]
+				} else {
+					result.localName = names[0]
+				}
+			}
+
 			x.scratch.reset()
 			goto search_close_tag
 		}
 
 		if cur == '>' {
 			if prev == '/' {
-				return string(x.scratch.bytes()[:len(x.scratch.bytes())-1]), result, true, nil
+				result.Name = string(x.scratch.bytes()[:len(x.scratch.bytes())-1])
+
+				if x.xpathEnabled {
+					names := strings.Split(result.Name, ":")
+					if len(names) > 1 {
+						result.prefix = names[0]
+						result.localName = names[1]
+					} else {
+						result.localName = names[0]
+					}
+				}
+
+				return result, true, nil
 			}
-			return string(x.scratch.bytes()), result, false, nil
+			result.Name = string(x.scratch.bytes())
+
+			if x.xpathEnabled {
+				names := strings.Split(result.Name, ":")
+				if len(names) > 1 {
+					result.prefix = names[0]
+					result.localName = names[1]
+				} else {
+					result.localName = names[0]
+				}
+			}
+
+			return result, false, nil
 		}
 		x.scratch.add(cur)
 		prev = cur
@@ -445,7 +407,7 @@ search_close_tag:
 		cur, err = x.readByte()
 
 		if err != nil {
-			return "", nil, false, x.defaultError()
+			return nil, false, x.defaultError()
 		}
 
 		if x.isWS(cur) {
@@ -460,28 +422,31 @@ search_close_tag:
 			cur, err = x.readByte()
 
 			if err != nil {
-				return "", nil, false, x.defaultError()
+				return nil, false, x.defaultError()
 			}
 
 			if !(cur == '"' || cur == '\'') {
-				return "", nil, false, x.defaultError()
+				return nil, false, x.defaultError()
 			}
 
 			attr = string(x.scratch.bytes())
 			attrVal, err = x.string(cur)
 			if err != nil {
-				return "", nil, false, x.defaultError()
+				return nil, false, x.defaultError()
 			}
 			result.Attrs[attr] = attrVal
+			if x.xpathEnabled {
+				result.attrs = append(result.attrs, &xmlAttr{name: attr, value: attrVal})
+			}
 			x.scratch.reset()
 			continue
 		}
 
 		if cur == '>' { //if tag name not found
 			if prev == '/' { //tag special close
-				return tagName, result, true, nil
+				return result, true, nil
 			}
-			return tagName, result, false, nil
+			return result, false, nil
 		}
 
 		x.scratch.add(cur)
@@ -538,6 +503,130 @@ func (x *XMLParser) isComment() (bool, error) {
 
 		if c == '>' && len(x.scratch.bytes()) > 1 && x.scratch.bytes()[len(x.scratch.bytes())-1] == '-' && x.scratch.bytes()[len(x.scratch.bytes())-2] == '-' {
 			return true, nil
+		}
+
+		x.scratch.add(c)
+
+	}
+
+}
+
+func (x *XMLParser) isCDATA() (bool, []byte, error) {
+
+	var c byte
+	var b []byte
+	var err error
+
+	b, err = x.reader.Peek(2)
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if b[0] != '!' {
+		return false, nil, nil
+	}
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if b[1] != '[' {
+		// this means this is not CDDATA either comment or or invalid xml which will be check during isComment
+		return false, nil, nil
+	}
+
+	// read peaked byte
+	_, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	_, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != 'C' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != 'D' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != 'A' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != 'T' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != 'A' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	c, err = x.readByte()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if c != '[' {
+		err = x.defaultError()
+		return false, nil, err
+	}
+
+	// this is possibly cdata // ]]>
+	x.scratch.reset()
+	for {
+
+		c, err = x.readByte()
+
+		if err != nil {
+			return false, nil, err
+		}
+
+		if c == '>' && len(x.scratch.bytes()) > 1 && x.scratch.bytes()[len(x.scratch.bytes())-1] == ']' && x.scratch.bytes()[len(x.scratch.bytes())-2] == ']' {
+			return true, x.scratch.bytes()[:len(x.scratch.bytes())-2], nil
 		}
 
 		x.scratch.add(c)

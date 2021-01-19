@@ -1,0 +1,12 @@
+<Root>
+    <Warnings>
+        <Warning Owner="QF">OB Fees of incl for CARD FEE FDA may be applied for traveler 1.</Warning>
+        <Warning Owner="QF">OB Fees of incl for CARD FEE FCA may be applied for traveler 1.</Warning>
+        <Warning Owner="QF"><![CDATA[Qantas Frequent Flyer 1 could earn 1200 Qantas Points and 20 Status Credit for this booking. <a href="https://www.qantas.com/fflyer/dyn/program/terms" target="_blank">Terms and conditions apply.</a>]]></Warning>
+    </Warnings>
+    <Response>
+		<ReShoppingResponseID>
+			<ResponseID>XXXXXXXX</ResponseID>
+		</ReShoppingResponseID>
+    </Response>
+</Root>
